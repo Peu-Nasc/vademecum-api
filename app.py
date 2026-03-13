@@ -4,6 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 import re
 from google import genai
+import os
 
 # 1. INICIALIZANDO O SERVIDOR FLASK
 app = Flask(__name__)
@@ -37,8 +38,9 @@ def capturar_artigo_planalto(url, regex_atual, regex_proximo):
 def explicar_com_ia(texto_artigo, nome_lei):
     print(f"\n[IA] Traduzindo o juridiquês do {nome_lei}...")
     
-    # IMPORTANTE: Insira sua NOVA chave de API aqui
-    CHAVE_API = "AIzaSyDf2ytHL6rTQJtLJOtWhkAXxTifDLVS_4E"
+    # 2. A MUDANÇA DE SEGURANÇA: O Python agora vai procurar a chave secreta no servidor
+    CHAVE_API = os.environ.get("GEMINI_API_KEY")
+    
     cliente = genai.Client(api_key=CHAVE_API)
     
     prompt = f"""
