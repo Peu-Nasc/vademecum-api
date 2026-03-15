@@ -11,31 +11,41 @@ CORS(app)
 
 # --- FUNÇÃO DE BLINDAGEM MÁXIMA (NOVO) ---
 # Tenta usar vários modelos caso um atinja o limite de taxa do Google
+# --- FUNÇÃO DE BLINDAGEM MÁXIMA ---
 def chamar_ia_com_fallback(prompt):
     CHAVE_API = os.environ.get("GEMINI_API_KEY")
-    cliente = genai.Client(api_key=CHAVE_API)
+    if not CHAVE_API:
+        print("[Erro Crítico] Chave API não encontrada!")
+        return None
+        
+    try:
+        cliente = genai.Client(api_key=CHAVE_API)
+    except Exception as e:
+        print(f"[Erro] Falha ao iniciar cliente IA: {e}")
+        return None
     
-    # Lista de modelos baseada no seu painel (do maior limite para o menor)
+    # Lista com os nomes EXATOS reconhecidos pelo seu painel Google
+    # Ordem: Do modelo mais leve/maior limite para o modelo de limite restrito (5 RPM)
     modelos_para_testar = [
-        'gemini-3.1-flash-lite',  # 15 RPM
-        'gemini-2.5-flash-lite',  # 10 RPM 
-        'gemini-3-flash',         # 5 RPM
-        'gemini-2.5-flash'        # 5 RPM
+        'gemini-3.1-flash-lite-preview', # O seu modelo mais recente e leve
+        'gemini-2.5-flash-lite',         # Versão otimizada (provável 10 RPM)
+        'gemini-2.0-flash-lite',         # Fallback super rápido
+        'gemini-2.0-flash',              # Modelo robusto anterior
+        'gemini-2.5-flash'               # O antigo que limitava em 5 RPM
     ]
 
     for modelo in modelos_para_testar:
         try:
-            print(f"[IA] Tentando conectar com o modelo: {modelo}")
+            print(f"[IA] A tentar conectar com o modelo oficial: {modelo}")
             resposta = cliente.models.generate_content(
                 model=modelo,
                 contents=prompt
             )
             return resposta.text
         except Exception as e:
-            print(f"[Aviso] Modelo {modelo} falhou ou atingiu o limite. Pulando para o próximo...")
-            continue # Se der erro, tenta o próximo modelo da lista instantaneamente
+            print(f"[Aviso] Modelo {modelo} falhou (Erro/Limite). A tentar o próximo... Erro: {e}")
+            continue 
             
-    # Se TODOS os modelos falharem, retorna uma mensagem amigável sem quebrar o site
     return "### ⚠️ Professor Boog Sobrecarregado\nAu au! Estou farejando muitas leis ao mesmo tempo agora. Por favor, aguarde uns 30 segundinhos e tente pesquisar novamente!"
 
 
