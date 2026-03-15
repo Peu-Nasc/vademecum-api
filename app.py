@@ -9,11 +9,39 @@ import os
 app = Flask(__name__)
 CORS(app) 
 
-# --- FUNÇÃO 1: O BIBLIOTECÁRIO (NOVO) ---
-def identificar_artigo_por_assunto(assunto, nome_lei):
-    print(f"\n[IA Bibliotecária] Buscando o número do artigo para: {assunto}...")
+# --- FUNÇÃO DE BLINDAGEM MÁXIMA (NOVO) ---
+# Tenta usar vários modelos caso um atinja o limite de taxa do Google
+def chamar_ia_com_fallback(prompt):
     CHAVE_API = os.environ.get("GEMINI_API_KEY")
     cliente = genai.Client(api_key=CHAVE_API)
+    
+    # Lista de modelos baseada no seu painel (do maior limite para o menor)
+    modelos_para_testar = [
+        'gemini-3.1-flash-lite',  # 15 RPM
+        'gemini-2.5-flash-lite',  # 10 RPM 
+        'gemini-3-flash',         # 5 RPM
+        'gemini-2.5-flash'        # 5 RPM
+    ]
+
+    for modelo in modelos_para_testar:
+        try:
+            print(f"[IA] Tentando conectar com o modelo: {modelo}")
+            resposta = cliente.models.generate_content(
+                model=modelo,
+                contents=prompt
+            )
+            return resposta.text
+        except Exception as e:
+            print(f"[Aviso] Modelo {modelo} falhou ou atingiu o limite. Pulando para o próximo...")
+            continue # Se der erro, tenta o próximo modelo da lista instantaneamente
+            
+    # Se TODOS os modelos falharem, retorna uma mensagem amigável sem quebrar o site
+    return "### ⚠️ Professor Boog Sobrecarregado\nAu au! Estou farejando muitas leis ao mesmo tempo agora. Por favor, aguarde uns 30 segundinhos e tente pesquisar novamente!"
+
+
+# --- FUNÇÃO 1: O BIBLIOTECÁRIO ---
+def identificar_artigo_por_assunto(assunto, nome_lei):
+    print(f"\n[IA Bibliotecária] Buscando o número do artigo para: {assunto}...")
     
     prompt = f"""
     Você é um assistente jurídico de busca. 
@@ -22,13 +50,11 @@ def identificar_artigo_por_assunto(assunto, nome_lei):
     Se o assunto não existir nessa lei, responda 0.
     """
     
-    resposta = cliente.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=prompt
-    )
-    # Pega apenas os números da resposta da IA
-    numero = re.sub(r'\D', '', resposta.text)
+    # Usando o sistema blindado
+    resposta_texto = chamar_ia_com_fallback(prompt)
+    numero = re.sub(r'\D', '', resposta_texto)
     return int(numero) if numero else 0
+
 
 # --- FUNÇÃO 2: O RASPADOR OFICIAL ---
 def capturar_artigo_planalto(url, regex_atual, regex_proximo):
@@ -42,6 +68,7 @@ def capturar_artigo_planalto(url, regex_atual, regex_proximo):
             strike.decompose()
 
         texto_lei = soup.get_text(separator='\n')
+        # O |$ garante que ele pegue o artigo até o final, mesmo se for o último da lei
         padrao_busca = f'({regex_atual}.*?)(?={regex_proximo}|$)'
         artigo_encontrado = re.search(padrao_busca, texto_lei, re.DOTALL | re.IGNORECASE)
 
@@ -49,11 +76,10 @@ def capturar_artigo_planalto(url, regex_atual, regex_proximo):
             return artigo_encontrado.group(1).strip()
     return None
 
+
 # --- FUNÇÃO 3: O PROFESSOR DIDÁTICO ---
 def explicar_com_ia(texto_artigo, nome_lei, termo_busca):
     print(f"[IA Professor] Explicando o artigo...")
-    CHAVE_API = os.environ.get("GEMINI_API_KEY")
-    cliente = genai.Client(api_key=CHAVE_API)
     
     prompt = f"""
     Você é o Professor Boog, o mascote bulldog e mentor jurídico desta plataforma.
@@ -76,8 +102,9 @@ def explicar_com_ia(texto_artigo, nome_lei, termo_busca):
     (Aponte a principal armadilha das bancas de concurso).
     """
     
-    resposta = cliente.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-    return resposta.text
+    # Usando o sistema blindado
+    return chamar_ia_com_fallback(prompt)
+
 
 # --- AS ROTAS DO SERVIDOR ---
 @app.route('/')
@@ -133,7 +160,7 @@ def buscar_artigo():
             'sucesso': True,
             'lei_seca': texto_puro,
             'explicacao_ia': explicacao,
-            'artigo_identificado': numero_artigo # Retorna o número que a IA encontrou para mostrar na tela
+            'artigo_identificado': numero_artigo 
         })
     else:
         return jsonify({'sucesso': False, 'erro': f'Artigo {numero_artigo} não encontrado no sistema oficial.'})
