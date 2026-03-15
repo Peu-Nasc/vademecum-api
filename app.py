@@ -1,16 +1,25 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
 import re
 from google import genai
 import os
-import traceback # Biblioteca para rastrear o erro exato
+import traceback
 
 app = Flask(__name__)
-CORS(app) 
+# Forçando o CORS a aceitar qualquer origem
+CORS(app, resources={r"/*": {"origins": "*"}})
 
-# --- FUNÇÃO DE BLINDAGEM MÁXIMA ---
+# --- BLINDAGEM DEFINITIVA CONTRA O ERRO DE CORS ---
+@app.after_request
+def add_cors_headers(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
+# --- FUNÇÃO DE BLINDAGEM MÁXIMA DA IA ---
 def chamar_ia_com_fallback(prompt):
     CHAVE_API = os.environ.get("GEMINI_API_KEY")
     if not CHAVE_API:
@@ -35,7 +44,7 @@ def chamar_ia_com_fallback(prompt):
                 model=modelo,
                 contents=prompt
             )
-            if resposta and resposta.text:
+            if resposta and hasattr(resposta, 'text') and resposta.text:
                 return resposta.text
         except Exception as e:
             print(f"[Aviso] Modelo {modelo} falhou: {e}")
@@ -49,7 +58,7 @@ def identificar_artigo_por_assunto(assunto, nome_lei):
     resposta_texto = chamar_ia_com_fallback(prompt)
     
     if "ERRO" in resposta_texto:
-        return -1 # Código secreto para falha da IA
+        return -1
         
     numeros = re.findall(r'\d+', resposta_texto)
     return int(numeros[0]) if numeros else 0
@@ -58,7 +67,6 @@ def identificar_artigo_por_assunto(assunto, nome_lei):
 def capturar_artigo_planalto(url, regex_atual, regex_proximo):
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        # Adicionamos um timeout para não travar se o site do governo cair
         resposta = requests.get(url, headers=headers, timeout=10)
         resposta.encoding = 'iso-8859-1'
         if resposta.status_code == 200:
@@ -101,9 +109,13 @@ def explicar_com_ia(texto_artigo, nome_lei, termo_busca):
 def home():
     return jsonify({"status": "API Vade Mecum Online! 🚀"})
 
-@app.route('/api/buscar', methods=['POST'])
+# Aceitar explicitamente os métodos POST e OPTIONS (Pré-voo do navegador)
+@app.route('/api/buscar', methods=['POST', 'OPTIONS'])
 def buscar_artigo():
-    # O TRY-EXCEPT GIGANTE QUE VAI SALVAR A NOSSA VIDA
+    # Se o navegador apenas estiver a perguntar se pode entrar (OPTIONS), dizemos que sim!
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+        
     try:
         dados = request.json
         termo_busca = dados.get('termo', '')
@@ -157,7 +169,6 @@ def buscar_artigo():
             return jsonify({'sucesso': False, 'erro': f'Artigo {numero_artigo} não encontrado. O site do governo pode estar fora do ar ou o artigo não existe.'})
             
     except Exception as e:
-        # SE ALGO CRASHAR, ELE MOSTRA O ERRO EXATO NO SITE
         erro_real = str(e)
         print(f"[ERRO CRÍTICO NO CÓDIGO] {traceback.format_exc()}")
         return jsonify({'sucesso': False, 'erro': f'ERRO DETECTADO NO PYTHON: {erro_real}'})
