@@ -125,13 +125,19 @@ def buscar_artigo():
             'cdc': 'https://www.planalto.gov.br/ccivil_03/leis/l8078compilado.htm',
             'cc': 'https://www.planalto.gov.br/ccivil_03/leis/2002/l10406compilada.htm',
             'cf': 'https://www.planalto.gov.br/ccivil_03/constituicao/constituicaocompilado.htm',
-            'cp': 'https://www.planalto.gov.br/ccivil_03/decreto-lei/del2848compilado.htm' 
+            'cp': 'https://www.planalto.gov.br/ccivil_03/decreto-lei/del2848compilado.htm',
+            'lmp': 'https://www.planalto.gov.br/ccivil_03/_ato2004-2006/2006/lei/l11340.htm',
+            'eca': 'https://www.planalto.gov.br/ccivil_03/leis/l8069.htm',
+            'clt': 'https://www.planalto.gov.br/ccivil_03/decreto-lei/del5452.htm'
         }
         nomes_leis = {
             'cdc': 'Código de Defesa do Consumidor',
             'cc': 'Código Civil',
             'cf': 'Constituição Federal do Brasil',
-            'cp': 'Código Penal' 
+            'cp': 'Código Penal',
+            'lmp': 'Lei Maria da Penha (Lei 11.340/06)',
+            'eca': 'Estatuto da Criança e do Adolescente',
+            'clt': 'Consolidação das Leis do Trabalho'
         }
         
         url_alvo = urls_governo.get(lei_escolhida)
