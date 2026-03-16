@@ -8,7 +8,6 @@ import os
 import traceback
 
 app = Flask(__name__)
-# Forçando o CORS a aceitar qualquer origem
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 @app.after_request
@@ -18,55 +17,51 @@ def add_cors_headers(response):
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response
 
-# --- FUNÇÃO DE BLINDAGEM MÁXIMA DA IA ---
 def chamar_ia_com_fallback(prompt):
     CHAVE_API = os.environ.get("GEMINI_API_KEY")
-    if not CHAVE_API:
-        return "ERRO_SEM_CHAVE"
-        
-    try:
-        cliente = genai.Client(api_key=CHAVE_API)
-    except Exception as e:
-        return f"ERRO_CLIENTE: {str(e)}"
+    if not CHAVE_API: return "ERRO_SEM_CHAVE"
+    try: cliente = genai.Client(api_key=CHAVE_API)
+    except Exception as e: return f"ERRO_CLIENTE: {str(e)}"
     
-    modelos_para_testar = [
-        'gemini-3.1-flash-lite-preview',
-        'gemini-2.0-flash-lite',
-        'gemini-2.0-flash',
-        'gemini-2.5-flash'
-    ]
-
+    modelos_para_testar = ['gemini-3.1-flash-lite-preview', 'gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-2.5-flash']
     for modelo in modelos_para_testar:
         try:
-            print(f"[IA] A tentar: {modelo}")
             resposta = cliente.models.generate_content(model=modelo, contents=prompt)
-            if resposta and hasattr(resposta, 'text') and resposta.text:
-                return resposta.text
-        except Exception as e:
-            print(f"[Aviso] Modelo {modelo} falhou: {e}")
-            continue 
-            
+            if resposta and hasattr(resposta, 'text') and resposta.text: return resposta.text
+        except: continue 
     return "ERRO_IA_OCUPADA"
 
-# --- FUNÇÃO 1: O BIBLIOTECÁRIO ---
-def identificar_artigo_por_assunto(assunto, nome_lei):
-    prompt = f"Qual é o número exato do artigo principal na legislação '{nome_lei}' que trata sobre '{assunto}'? Responda APENAS com o número e a letra, se houver (ex: 121 ou 121-A)."
-    resposta_texto = chamar_ia_com_fallback(prompt)
+# --- O NOVO CÉREBRO OMNI-SEARCH DO BOOG ---
+def identificar_lei_e_artigo(termo, categoria_escolhida):
+    prompt = f"""
+    Você é o bibliotecário jurídico chefe do Vade Mecum.
+    O usuário digitou: "{termo}"
+    E selecionou a categoria: "{categoria_escolhida}"
     
-    if "ERRO" in resposta_texto:
-        return "-1"
-        
-    # Agora a IA consegue capturar letras também (ex: 121, 121-A, 121A)
-    match = re.search(r'\d+(?:-[A-Za-z]|[A-Za-z])?', resposta_texto)
+    REGRAS DE OURO:
+    1. Se o usuário pesquisar um crime (ex: roubo, furto) no Código Civil, CORRIJA para Código Penal (cp).
+    2. Se pesquisar coisas civis (ex: divórcio, usucapião) no Penal, CORRIJA para Código Civil (cc).
+    3. Se ele escolheu "Leis Especiais", descubra se é Maria da Penha (lmp), ECA (eca) ou CLT (clt).
+    
+    Chaves oficiais permitidas: cdc, cc, cf, cp, lmp, eca, clt.
+    
+    Responda APENAS no formato: chave|numero
+    Exemplo: cp|157 ou lmp|7
+    Se não existir, responda: erro|0
+    """
+    res = chamar_ia_com_fallback(prompt)
+    if "ERRO" in res: return "erro", "0"
+    
+    # Extrai a resposta mesmo que a IA escreva texto extra
+    match = re.search(r'(cdc|cc|cf|cp|lmp|eca|clt)\|(\d+(?:-[a-zA-Z]|[a-zA-Z])?)', res.lower())
     if match:
-        num = match.group(0).upper()
-        # Se a IA devolver "121A" em vez de "121-A", nós consertamos
-        if not '-' in num and re.search(r'[A-Z]', num):
-            num = re.sub(r'([A-Z])', r'-\1', num)
-        return num
-    return "0"
+        chave = match.group(1)
+        artigo = match.group(2).upper()
+        if not '-' in artigo and re.search(r'[A-Z]', artigo):
+            artigo = re.sub(r'([A-Z])', r'-\1', artigo)
+        return chave, artigo
+    return "erro", "0"
 
-# --- FUNÇÃO 2: O RASPADOR OFICIAL ---
 def capturar_artigo_planalto(url, regex_atual, regex_proximo):
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
@@ -74,50 +69,24 @@ def capturar_artigo_planalto(url, regex_atual, regex_proximo):
         resposta.encoding = 'iso-8859-1'
         if resposta.status_code == 200:
             soup = BeautifulSoup(resposta.text, 'html.parser')
-            for strike in soup.find_all('strike'):
-                strike.decompose()
-
+            for strike in soup.find_all('strike'): strike.decompose()
             texto_lei = soup.get_text(separator=' \n ')
-            
-            # ATENÇÃO: Removemos o re.IGNORECASE! 
-            # Assim ele só captura a declaração "Art. 121-A" e ignora a citação "art. 121-a"
             padrao_busca = f'({regex_atual}.*?)(?={regex_proximo}|$)'
             artigo_encontrado = re.search(padrao_busca, texto_lei, re.DOTALL)
-
-            if artigo_encontrado:
-                return artigo_encontrado.group(1).strip()
+            if artigo_encontrado: return artigo_encontrado.group(1).strip()
         return None
-    except Exception as e:
-        print(f"Erro ao conectar com o site do governo: {e}")
-        return None
+    except: return None
 
-# --- FUNÇÃO 3: O PROFESSOR DIDÁTICO ---
 def explicar_com_ia(texto_artigo, nome_lei, termo_busca):
-    prompt = f"""
-    Você é o Professor Boog, o mascote bulldog e mentor jurídico. Vá direto ao ponto.
-    Lei: {nome_lei} | Busca: {termo_busca}
-    Texto: {texto_artigo}
-    
-    Responda ESTRITAMENTE neste formato Markdown:
-    ### 📖 O que significa?
-    ### 🎯 Aplicação Prática
-    ### ⚠️ Pegadinha de Prova
-    """
-    res = chamar_ia_com_fallback(prompt)
-    if "ERRO" in res:
-        return "### ⚠️ Professor Boog Sobrecarregado\nAu au! O meu faro está cansado. As inteligências artificiais do Google estão no limite de uso. Tente novamente em 1 minuto!"
-    return res
+    prompt = f"Você é o Professor Boog. Explique o artigo da lei {nome_lei} sobre '{termo_busca}'.\nTexto Oficial: {texto_artigo}\nResponda em Markdown com:\n### 📖 O que significa?\n### 🎯 Aplicação Prática\n### ⚠️ Pegadinha de Prova"
+    return chamar_ia_com_fallback(prompt)
 
-# --- AS ROTAS DO SERVIDOR ---
 @app.route('/')
-def home():
-    return jsonify({"status": "API Vade Mecum Online! 🚀"})
+def home(): return jsonify({"status": "API Vade Mecum Online! 🚀"})
 
 @app.route('/api/buscar', methods=['POST', 'OPTIONS'])
 def buscar_artigo():
-    if request.method == 'OPTIONS':
-        return jsonify({'status': 'ok'}), 200
-        
+    if request.method == 'OPTIONS': return jsonify({'status': 'ok'}), 200
     try:
         dados = request.json
         termo_busca = dados.get('termo', '')
@@ -137,39 +106,41 @@ def buscar_artigo():
             'cc': 'Código Civil',
             'cf': 'Constituição Federal do Brasil',
             'cp': 'Código Penal',
-            'lmp': 'Lei Maria da Penha (Lei 11.340/06)',
+            'lmp': 'Lei Maria da Penha',
             'eca': 'Estatuto da Criança e do Adolescente',
             'clt': 'Consolidação das Leis do Trabalho'
         }
         
-        url_alvo = urls_governo.get(lei_escolhida)
-        nome_da_lei = nomes_leis.get(lei_escolhida)
-
-        # 1. Tenta achar número e letra na busca (ex: "Artigo 121-A")
+        eh_apenas_numero = False
+        numero_extraido = ""
         numero_match = re.search(r'(?:artigo|art\.?)\s*(\d+(?:-[A-Za-z]|[A-Za-z])?)', termo_busca, re.IGNORECASE)
-        
         if numero_match:
-            numero_artigo = numero_match.group(1).upper()
+            numero_extraido = numero_match.group(1).upper()
+            eh_apenas_numero = True
         elif re.match(r'^\d+(?:-[A-Za-z]|[A-Za-z])?$', termo_busca.strip()): 
-            numero_artigo = termo_busca.strip().upper()
+            numero_extraido = termo_busca.strip().upper()
+            eh_apenas_numero = True
+
+        # Se o utilizador apenas digitou o número e não está nas "Leis Especiais", vai direto
+        if eh_apenas_numero and lei_escolhida != 'especiais':
+            chave_lei = lei_escolhida
+            numero_artigo = numero_extraido
         else:
-            numero_artigo = identificar_artigo_por_assunto(termo_busca, nome_da_lei)
+            # Caso contrário, invoca o Omni-Search para corrigir a lei ou descobrir a Especial
+            nome_da_lei_dropdown = "Leis Especiais" if lei_escolhida == 'especiais' else nomes_leis.get(lei_escolhida, '')
+            chave_lei, numero_artigo = identificar_lei_e_artigo(termo_busca, nome_da_lei_dropdown)
             
-            if numero_artigo == "-1":
-                return jsonify({'sucesso': False, 'erro': 'A Chave da API sumiu do Render ou os modelos falharam. Verifique os Logs do Render.'})
-            if numero_artigo == "0":
-                return jsonify({'sucesso': False, 'erro': f'Não encontrámos um artigo para "{termo_busca}".'})
-        
-        # Formatação preventiva (121A -> 121-A)
+            if chave_lei == "erro" or numero_artigo == "0":
+                return jsonify({'sucesso': False, 'erro': f'Não encontrámos a lei exata para "{termo_busca}".'})
+                
         if not '-' in numero_artigo and re.search(r'[A-Z]', numero_artigo):
             numero_artigo = re.sub(r'([A-Z])', r'-\1', numero_artigo)
             
-        # O regex agora procura "Art." MAIÚSCULO no início da linha, e não aceita que "121" pegue "121-A"
+        url_alvo = urls_governo.get(chave_lei)
+        nome_da_lei = nomes_leis.get(chave_lei)
+        
         regex_atual = rf'(?:\n|^)\s*Art\.\s*{numero_artigo}[°º\.]?(?!\d|-|[A-Z])'
-        
-        # O código para de raspar assim que encontrar o PRÓXIMO "Art." na linha seguinte (seja ele qual for)
         regex_proximo = r'(?:\n|^)\s*Art\.\s*\d+'
-        
         texto_puro = capturar_artigo_planalto(url_alvo, regex_atual, regex_proximo)
         
         if texto_puro:
@@ -178,15 +149,15 @@ def buscar_artigo():
                 'sucesso': True,
                 'lei_seca': texto_puro,
                 'explicacao_ia': explicacao,
-                'artigo_identificado': numero_artigo 
+                'artigo_identificado': numero_artigo,
+                'nome_lei_corrigido': nome_da_lei # Retorna a lei verdadeira caso o Boog tenha corrigido o usuário
             })
         else:
-            return jsonify({'sucesso': False, 'erro': f'Artigo {numero_artigo} não encontrado. O site do governo pode estar fora do ar ou o artigo não existe.'})
+            return jsonify({'sucesso': False, 'erro': f'Artigo {numero_artigo} não encontrado em {nome_da_lei}.'})
             
     except Exception as e:
-        erro_real = str(e)
-        print(f"[ERRO CRÍTICO NO CÓDIGO] {traceback.format_exc()}")
-        return jsonify({'sucesso': False, 'erro': f'ERRO DETECTADO NO PYTHON: {erro_real}'})
+        print(f"[ERRO CRÍTICO] {traceback.format_exc()}")
+        return jsonify({'sucesso': False, 'erro': f'ERRO: {str(e)}'})
 
 if __name__ == '__main__':
     app.run(debug=True)
