@@ -11,7 +11,6 @@ app = Flask(__name__)
 # Forçando o CORS a aceitar qualquer origem
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# --- BLINDAGEM DEFINITIVA CONTRA O ERRO DE CORS ---
 @app.after_request
 def add_cors_headers(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -40,10 +39,7 @@ def chamar_ia_com_fallback(prompt):
     for modelo in modelos_para_testar:
         try:
             print(f"[IA] A tentar: {modelo}")
-            resposta = cliente.models.generate_content(
-                model=modelo,
-                contents=prompt
-            )
+            resposta = cliente.models.generate_content(model=modelo, contents=prompt)
             if resposta and hasattr(resposta, 'text') and resposta.text:
                 return resposta.text
         except Exception as e:
@@ -54,14 +50,21 @@ def chamar_ia_com_fallback(prompt):
 
 # --- FUNÇÃO 1: O BIBLIOTECÁRIO ---
 def identificar_artigo_por_assunto(assunto, nome_lei):
-    prompt = f"Qual é o número exato do artigo principal na legislação '{nome_lei}' que trata sobre '{assunto}'? Responda APENAS com o número inteiro em dígitos."
+    prompt = f"Qual é o número exato do artigo principal na legislação '{nome_lei}' que trata sobre '{assunto}'? Responda APENAS com o número e a letra, se houver (ex: 121 ou 121-A)."
     resposta_texto = chamar_ia_com_fallback(prompt)
     
     if "ERRO" in resposta_texto:
-        return -1
+        return "-1"
         
-    numeros = re.findall(r'\d+', resposta_texto)
-    return int(numeros[0]) if numeros else 0
+    # Agora a IA consegue capturar letras também (ex: 121, 121-A, 121A)
+    match = re.search(r'\d+(?:-[A-Za-z]|[A-Za-z])?', resposta_texto)
+    if match:
+        num = match.group(0).upper()
+        # Se a IA devolver "121A" em vez de "121-A", nós consertamos
+        if not '-' in num and re.search(r'[A-Z]', num):
+            num = re.sub(r'([A-Z])', r'-\1', num)
+        return num
+    return "0"
 
 # --- FUNÇÃO 2: O RASPADOR OFICIAL ---
 def capturar_artigo_planalto(url, regex_atual, regex_proximo):
@@ -74,9 +77,12 @@ def capturar_artigo_planalto(url, regex_atual, regex_proximo):
             for strike in soup.find_all('strike'):
                 strike.decompose()
 
-            texto_lei = soup.get_text(separator='\n')
+            texto_lei = soup.get_text(separator=' \n ')
+            
+            # ATENÇÃO: Removemos o re.IGNORECASE! 
+            # Assim ele só captura a declaração "Art. 121-A" e ignora a citação "art. 121-a"
             padrao_busca = f'({regex_atual}.*?)(?={regex_proximo}|$)'
-            artigo_encontrado = re.search(padrao_busca, texto_lei, re.DOTALL | re.IGNORECASE)
+            artigo_encontrado = re.search(padrao_busca, texto_lei, re.DOTALL)
 
             if artigo_encontrado:
                 return artigo_encontrado.group(1).strip()
@@ -88,9 +94,7 @@ def capturar_artigo_planalto(url, regex_atual, regex_proximo):
 # --- FUNÇÃO 3: O PROFESSOR DIDÁTICO ---
 def explicar_com_ia(texto_artigo, nome_lei, termo_busca):
     prompt = f"""
-    Você é o Professor Boog, o mascote bulldog e mentor jurídico.
-    Vá direto ao ponto.
-    
+    Você é o Professor Boog, o mascote bulldog e mentor jurídico. Vá direto ao ponto.
     Lei: {nome_lei} | Busca: {termo_busca}
     Texto: {texto_artigo}
     
@@ -109,10 +113,8 @@ def explicar_com_ia(texto_artigo, nome_lei, termo_busca):
 def home():
     return jsonify({"status": "API Vade Mecum Online! 🚀"})
 
-# Aceitar explicitamente os métodos POST e OPTIONS (Pré-voo do navegador)
 @app.route('/api/buscar', methods=['POST', 'OPTIONS'])
 def buscar_artigo():
-    # Se o navegador apenas estiver a perguntar se pode entrar (OPTIONS), dizemos que sim!
     if request.method == 'OPTIONS':
         return jsonify({'status': 'ok'}), 200
         
@@ -143,23 +145,30 @@ def buscar_artigo():
         url_alvo = urls_governo.get(lei_escolhida)
         nome_da_lei = nomes_leis.get(lei_escolhida)
 
-        numero_match = re.search(r'(?:artigo|art\.?)\s*(\d+)', termo_busca, re.IGNORECASE)
+        # 1. Tenta achar número e letra na busca (ex: "Artigo 121-A")
+        numero_match = re.search(r'(?:artigo|art\.?)\s*(\d+(?:-[A-Za-z]|[A-Za-z])?)', termo_busca, re.IGNORECASE)
         
         if numero_match:
-            numero_artigo = int(numero_match.group(1))
-        elif termo_busca.isdigit(): 
-            numero_artigo = int(termo_busca)
+            numero_artigo = numero_match.group(1).upper()
+        elif re.match(r'^\d+(?:-[A-Za-z]|[A-Za-z])?$', termo_busca.strip()): 
+            numero_artigo = termo_busca.strip().upper()
         else:
             numero_artigo = identificar_artigo_por_assunto(termo_busca, nome_da_lei)
             
-            if numero_artigo == -1:
+            if numero_artigo == "-1":
                 return jsonify({'sucesso': False, 'erro': 'A Chave da API sumiu do Render ou os modelos falharam. Verifique os Logs do Render.'})
-            if numero_artigo == 0:
+            if numero_artigo == "0":
                 return jsonify({'sucesso': False, 'erro': f'Não encontrámos um artigo para "{termo_busca}".'})
+        
+        # Formatação preventiva (121A -> 121-A)
+        if not '-' in numero_artigo and re.search(r'[A-Z]', numero_artigo):
+            numero_artigo = re.sub(r'([A-Z])', r'-\1', numero_artigo)
             
-        proximo_artigo = numero_artigo + 1
-        regex_atual = rf'Art\.\s*{numero_artigo}[°º\.]?'
-        regex_proximo = rf'Art\.\s*{proximo_artigo}[°º\.]?'
+        # O regex agora procura "Art." MAIÚSCULO no início da linha, e não aceita que "121" pegue "121-A"
+        regex_atual = rf'(?:\n|^)\s*Art\.\s*{numero_artigo}[°º\.]?(?!\d|-|[A-Z])'
+        
+        # O código para de raspar assim que encontrar o PRÓXIMO "Art." na linha seguinte (seja ele qual for)
+        regex_proximo = r'(?:\n|^)\s*Art\.\s*\d+'
         
         texto_puro = capturar_artigo_planalto(url_alvo, regex_atual, regex_proximo)
         
