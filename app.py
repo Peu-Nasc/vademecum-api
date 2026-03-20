@@ -32,7 +32,37 @@ def chamar_ia_com_fallback(prompt):
     return "ERRO_IA_OCUPADA"
 
 # --- O NOVO CÉREBRO OMNI-SEARCH DO BOOG ---
+# --- O NOVO CÉREBRO OMNI-SEARCH DO BOOG ---
 def identificar_lei_e_artigo(termo, categoria_escolhida):
+    prompt = f"""
+    Você é o bibliotecário jurídico chefe do Vade Mecum.
+    O usuário digitou: "{termo}"
+    E selecionou a categoria: "{categoria_escolhida}"
+    
+    REGRAS DE OURO:
+    1. Se o usuário pesquisar um crime no Código Civil, CORRIJA para Código Penal (cp).
+    2. Se pesquisar coisas civis no Penal, CORRIJA para Código Civil (cc).
+    3. Se ele escolheu "Leis Especiais", descubra se é Maria da Penha (lmp), ECA (eca), CLT (clt) ou a nova Lei Felca/ECA Digital (ecadigital).
+    4. ANTI-ALUCINAÇÃO: Se o usuário digitar piadas ou termos sem sentido que não estão na base, responda EXATAMENTE: erro|0.
+    
+    Chaves permitidas: cdc, cc, cf, cp, lmp, eca, clt, ecadigital.
+    
+    Responda APENAS no formato: chave|numero
+    Exemplo: cp|157 ou ecadigital|23
+    Se não existir, responda: erro|0
+    """
+    res = chamar_ia_com_fallback(prompt)
+    if "ERRO" in res: return "erro", "0"
+    
+    # ATUALIZADO: O regex agora reconhece a chave 'ecadigital'
+    match = re.search(r'(cdc|cc|cf|cp|lmp|eca|clt|ecadigital)\|(\d+(?:-[a-zA-Z]|[a-zA-Z])?)', res.lower())
+    if match:
+        chave = match.group(1)
+        artigo = match.group(2).upper()
+        if not '-' in artigo and re.search(r'[A-Z]', artigo):
+            artigo = re.sub(r'([A-Z])', r'-\1', artigo)
+        return chave, artigo
+    return "erro", "0"
     prompt = f"""
     Você é o bibliotecário jurídico chefe do Vade Mecum.
     O usuário digitou: "{termo}"
@@ -99,7 +129,8 @@ def buscar_artigo():
             'cp': 'https://www.planalto.gov.br/ccivil_03/decreto-lei/del2848compilado.htm',
             'lmp': 'https://www.planalto.gov.br/ccivil_03/_ato2004-2006/2006/lei/l11340.htm',
             'eca': 'https://www.planalto.gov.br/ccivil_03/leis/l8069.htm',
-            'clt': 'https://www.planalto.gov.br/ccivil_03/decreto-lei/del5452.htm'
+            'clt': 'https://www.planalto.gov.br/ccivil_03/decreto-lei/del5452.htm',
+            'ecadigital': 'https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/lei/L15211.htm' # <-- A NOVA LEI AQUI!
         }
         nomes_leis = {
             'cdc': 'Código de Defesa do Consumidor',
@@ -108,7 +139,8 @@ def buscar_artigo():
             'cp': 'Código Penal',
             'lmp': 'Lei Maria da Penha',
             'eca': 'Estatuto da Criança e do Adolescente',
-            'clt': 'Consolidação das Leis do Trabalho'
+            'clt': 'Consolidação das Leis do Trabalho',
+            'ecadigital': 'ECA Digital (Lei Felca - Lei 15.211/25)' # <-- O NOME AQUI!
         }
         
         eh_apenas_numero = False
