@@ -32,7 +32,6 @@ def chamar_ia_com_fallback(prompt):
     return "ERRO_IA_OCUPADA"
 
 # --- O NOVO CÉREBRO OMNI-SEARCH DO BOOG ---
-# --- O NOVO CÉREBRO OMNI-SEARCH DO BOOG ---
 def identificar_lei_e_artigo(termo, categoria_escolhida):
     prompt = f"""
     Você é o bibliotecário jurídico chefe do Vade Mecum.
@@ -43,51 +42,23 @@ def identificar_lei_e_artigo(termo, categoria_escolhida):
     1. Se o usuário pesquisar um crime no Código Civil, CORRIJA para Código Penal (cp).
     2. Se pesquisar coisas civis no Penal, CORRIJA para Código Civil (cc).
     3. Se ele escolheu "Leis Especiais", descubra se é Maria da Penha (lmp), ECA (eca), CLT (clt) ou a nova Lei Felca/ECA Digital (ecadigital).
-    4. ANTI-ALUCINAÇÃO: Se o usuário digitar piadas ou termos sem sentido que não estão na base, responda EXATAMENTE: erro|0.
+    4. ANTI-ALUCINAÇÃO: Se o usuário digitar piadas ou termos sem sentido, responda EXATAMENTE: erro|0.
+    5. LEI COMPLETA: Se o usuário digitar APENAS o nome da lei (ex: "lei felca", "maria da penha", "codigo penal") sem especificar assunto ou artigo, retorne a chave e a palavra COMPLETA (ex: ecadigital|COMPLETA ou lmp|COMPLETA).
     
     Chaves permitidas: cdc, cc, cf, cp, lmp, eca, clt, ecadigital.
     
     Responda APENAS no formato: chave|numero
-    Exemplo: cp|157 ou ecadigital|23
+    Exemplo: cp|157 ou ecadigital|COMPLETA
     Se não existir, responda: erro|0
     """
     res = chamar_ia_com_fallback(prompt)
     if "ERRO" in res: return "erro", "0"
     
-    # ATUALIZADO: O regex agora reconhece a chave 'ecadigital'
-    match = re.search(r'(cdc|cc|cf|cp|lmp|eca|clt|ecadigital)\|(\d+(?:-[a-zA-Z]|[a-zA-Z])?)', res.lower())
+    match = re.search(r'(cdc|cc|cf|cp|lmp|eca|clt|ecadigital)\|(\d+(?:-[a-zA-Z]|[a-zA-Z])?|completa)', res.lower())
     if match:
         chave = match.group(1)
         artigo = match.group(2).upper()
-        if not '-' in artigo and re.search(r'[A-Z]', artigo):
-            artigo = re.sub(r'([A-Z])', r'-\1', artigo)
-        return chave, artigo
-    return "erro", "0"
-    prompt = f"""
-    Você é o bibliotecário jurídico chefe do Vade Mecum.
-    O usuário digitou: "{termo}"
-    E selecionou a categoria: "{categoria_escolhida}"
-    
-    REGRAS DE OURO:
-    1. Se o usuário pesquisar um crime (ex: roubo, furto) no Código Civil, CORRIJA para Código Penal (cp).
-    2. Se pesquisar coisas civis (ex: divórcio, usucapião) no Penal, CORRIJA para Código Civil (cc).
-    3. Se ele escolheu "Leis Especiais", descubra se é Maria da Penha (lmp), ECA (eca) ou CLT (clt).
-    
-    Chaves oficiais permitidas: cdc, cc, cf, cp, lmp, eca, clt.
-    
-    Responda APENAS no formato: chave|numero
-    Exemplo: cp|157 ou lmp|7
-    Se não existir, responda: erro|0
-    """
-    res = chamar_ia_com_fallback(prompt)
-    if "ERRO" in res: return "erro", "0"
-    
-    # Extrai a resposta mesmo que a IA escreva texto extra
-    match = re.search(r'(cdc|cc|cf|cp|lmp|eca|clt)\|(\d+(?:-[a-zA-Z]|[a-zA-Z])?)', res.lower())
-    if match:
-        chave = match.group(1)
-        artigo = match.group(2).upper()
-        if not '-' in artigo and re.search(r'[A-Z]', artigo):
+        if artigo != "COMPLETA" and not '-' in artigo and re.search(r'[A-Z]', artigo):
             artigo = re.sub(r'([A-Z])', r'-\1', artigo)
         return chave, artigo
     return "erro", "0"
@@ -101,14 +72,38 @@ def capturar_artigo_planalto(url, regex_atual, regex_proximo):
             soup = BeautifulSoup(resposta.text, 'html.parser')
             for strike in soup.find_all('strike'): strike.decompose()
             texto_lei = soup.get_text(separator=' \n ')
-            padrao_busca = f'({regex_atual}.*?)(?={regex_proximo}|$)'
+            
+            if regex_proximo:
+                padrao_busca = f'({regex_atual}.*?)(?={regex_proximo}|$)'
+            else:
+                # Se não tem limite, copia do Art 1º até ao final do site!
+                padrao_busca = f'({regex_atual}.*)'
+                
             artigo_encontrado = re.search(padrao_busca, texto_lei, re.DOTALL)
-            if artigo_encontrado: return artigo_encontrado.group(1).strip()
+            
+            if artigo_encontrado: 
+                texto_final = artigo_encontrado.group(1).strip()
+                # TRAVA DE SEGURANÇA GÊNIAL: Protege o seu site de travar com leis infinitas.
+                if len(texto_final) > 15000:
+                    texto_final = texto_final[:15000] + "\n\n[... O texto da lei é muito extenso e continua. Para ler artigos específicos, pesquise pelo número do artigo ou termo desejado.]"
+                return texto_final
         return None
     except: return None
 
 def explicar_com_ia(texto_artigo, nome_lei, termo_busca):
-    prompt = f"Você é o Professor Boog. Explique o artigo da lei {nome_lei} sobre '{termo_busca}'.\nTexto Oficial: {texto_artigo}\nResponda em Markdown com:\n### 📖 O que significa?\n### 🎯 Aplicação Prática\n### ⚠️ Pegadinha de Prova"
+    # Voltámos ao prompt original de sucesso, mas avisando a IA que pode ser uma lei inteira.
+    prompt = f"""
+    Você é o Professor Boog, o mascote bulldog e mentor jurídico. Vá direto ao ponto.
+    Lei: {nome_lei} | Busca do Usuário: {termo_busca}
+    Texto Oficial: {texto_artigo}
+    
+    Se o Texto Oficial for de uma lei inteira, explique a lei toda de forma brilhante. Se for um artigo único, explique o artigo.
+    
+    Responda ESTRITAMENTE neste formato Markdown:
+    ### 📖 O que significa?
+    ### 🎯 Aplicação Prática
+    ### ⚠️ Pegadinha de Prova
+    """
     return chamar_ia_com_fallback(prompt)
 
 @app.route('/')
@@ -130,7 +125,7 @@ def buscar_artigo():
             'lmp': 'https://www.planalto.gov.br/ccivil_03/_ato2004-2006/2006/lei/l11340.htm',
             'eca': 'https://www.planalto.gov.br/ccivil_03/leis/l8069.htm',
             'clt': 'https://www.planalto.gov.br/ccivil_03/decreto-lei/del5452.htm',
-            'ecadigital': 'https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/lei/L15211.htm' # <-- A NOVA LEI AQUI!
+            'ecadigital': 'https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/lei/L15211.htm'
         }
         nomes_leis = {
             'cdc': 'Código de Defesa do Consumidor',
@@ -140,7 +135,7 @@ def buscar_artigo():
             'lmp': 'Lei Maria da Penha',
             'eca': 'Estatuto da Criança e do Adolescente',
             'clt': 'Consolidação das Leis do Trabalho',
-            'ecadigital': 'ECA Digital (Lei Felca - Lei 15.211/25)' # <-- O NOME AQUI!
+            'ecadigital': 'ECA Digital (Lei Felca - Lei 15.211/25)'
         }
         
         eh_apenas_numero = False
@@ -153,26 +148,30 @@ def buscar_artigo():
             numero_extraido = termo_busca.strip().upper()
             eh_apenas_numero = True
 
-        # Se o utilizador apenas digitou o número e não está nas "Leis Especiais", vai direto
         if eh_apenas_numero and lei_escolhida != 'especiais':
             chave_lei = lei_escolhida
             numero_artigo = numero_extraido
         else:
-            # Caso contrário, invoca o Omni-Search para corrigir a lei ou descobrir a Especial
             nome_da_lei_dropdown = "Leis Especiais" if lei_escolhida == 'especiais' else nomes_leis.get(lei_escolhida, '')
             chave_lei, numero_artigo = identificar_lei_e_artigo(termo_busca, nome_da_lei_dropdown)
             
             if chave_lei == "erro" or numero_artigo == "0":
                 return jsonify({'sucesso': False, 'erro': f'Não encontrámos a lei exata para "{termo_busca}".'})
                 
-        if not '-' in numero_artigo and re.search(r'[A-Z]', numero_artigo):
+        if not '-' in numero_artigo and re.search(r'[A-Z]', numero_artigo) and numero_artigo != "COMPLETA":
             numero_artigo = re.sub(r'([A-Z])', r'-\1', numero_artigo)
             
         url_alvo = urls_governo.get(chave_lei)
         nome_da_lei = nomes_leis.get(chave_lei)
         
-        regex_atual = rf'(?:\n|^)\s*Art\.\s*{numero_artigo}[°º\.]?(?!\d|-|[A-Z])'
-        regex_proximo = r'(?:\n|^)\s*Art\.\s*\d+'
+        # A MÁGICA DE PUXAR A LEI TODA ACONTECE AQUI
+        if numero_artigo == "COMPLETA":
+            regex_atual = r'(?:\n|^)\s*Art\.\s*1[°º\.]?(?!\d|-|[A-Z])'
+            regex_proximo = None # A ausência de limite faz ele ler a lei toda
+        else:
+            regex_atual = rf'(?:\n|^)\s*Art\.\s*{numero_artigo}[°º\.]?(?!\d|-|[A-Z])'
+            regex_proximo = r'(?:\n|^)\s*Art\.\s*\d+'
+            
         texto_puro = capturar_artigo_planalto(url_alvo, regex_atual, regex_proximo)
         
         if texto_puro:
@@ -181,11 +180,11 @@ def buscar_artigo():
                 'sucesso': True,
                 'lei_seca': texto_puro,
                 'explicacao_ia': explicacao,
-                'artigo_identificado': numero_artigo,
-                'nome_lei_corrigido': nome_da_lei # Retorna a lei verdadeira caso o Boog tenha corrigido o usuário
+                'artigo_identificado': numero_artigo if numero_artigo != "COMPLETA" else "Toda a Lei",
+                'nome_lei_corrigido': nome_da_lei
             })
         else:
-            return jsonify({'sucesso': False, 'erro': f'Artigo {numero_artigo} não encontrado em {nome_da_lei}.'})
+            return jsonify({'sucesso': False, 'erro': f'Conteúdo não encontrado em {nome_da_lei}.'})
             
     except Exception as e:
         print(f"[ERRO CRÍTICO] {traceback.format_exc()}")
