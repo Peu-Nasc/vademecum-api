@@ -91,18 +91,28 @@ def capturar_artigo_planalto(url, regex_atual, regex_proximo):
     except: return None
 
 def explicar_com_ia(texto_artigo, nome_lei, termo_busca):
-    # Voltámos ao prompt original de sucesso, mas avisando a IA que pode ser uma lei inteira.
     prompt = f"""
-    Você é o Professor Boog, o mascote bulldog e mentor jurídico. Vá direto ao ponto.
+    Você é o Professor Boog, o simpático e genial mascote bulldog mentor jurídico do Vade Mecum Digital. 
+    A sua missão é pegar no texto oficial da lei e "destrinchá-lo" para um português claro, 
+    explicando como se estivesse a dar uma aula particular de excelência para um estudante de Direito.
+    
     Lei: {nome_lei} | Busca do Usuário: {termo_busca}
     Texto Oficial: {texto_artigo}
     
-    Se o Texto Oficial for de uma lei inteira, explique a lei toda de forma brilhante. Se for um artigo único, explique o artigo.
-    
     Responda ESTRITAMENTE neste formato Markdown:
-    ### 📖 O que significa?
-    ### 🎯 Aplicação Prática
+    
+    ### 🐾 Traduzindo o Juridiquês
+    (Explique de forma detalhada, muito clara e acessível o que este texto quer dizer na prática. Sem termos complicados, traduza a lei para o mundo real).
+    
+    ### ⚖️ Destrinchando a Lei
+    (Crie tópicos curtos (bullet points) a apontar os principais requisitos, verbos, prazos ou elementos que compõem esta lei/artigo para facilitar a memorização).
+    
+    ### 📖 Exemplos Práticos
+    * **Na Vida Real:** (Dê um exemplo quotidiano, simples e lúdico que qualquer pessoa entenda).
+    * **No Cenário Jurídico:** (Dê um exemplo técnico de como isto aparece num tribunal, numa petição ou numa delegacia).
+    
     ### ⚠️ Pegadinha de Prova
+    (Alerte sobre as confusões mais comuns que as bancas de concurso ou a OAB fazem com este tema. Onde é que os alunos costumam errar?).
     """
     return chamar_ia_com_fallback(prompt)
 
@@ -176,12 +186,17 @@ def buscar_artigo():
         
         if texto_puro:
             explicacao = explicar_com_ia(texto_puro, nome_da_lei, termo_busca)
+            
+            # Descobre qual menu deve ficar selecionado na tela
+            menu_correto = 'especiais' if chave_lei in ['lmp', 'eca', 'clt', 'ecadigital'] else chave_lei
+
             return jsonify({
                 'sucesso': True,
                 'lei_seca': texto_puro,
                 'explicacao_ia': explicacao,
                 'artigo_identificado': numero_artigo if numero_artigo != "COMPLETA" else "Toda a Lei",
-                'nome_lei_corrigido': nome_da_lei
+                'nome_lei_corrigido': nome_da_lei,
+                'menu_correto': menu_correto # Mandando a informação para mudar o select!
             })
         else:
             return jsonify({'sucesso': False, 'erro': f'Conteúdo não encontrado em {nome_da_lei}.'})
